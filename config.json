@@ -1,0 +1,67 @@
+{
+    "project_name": "D-IC_Mobile_Project",
+    "version": "1.0",
+    "test_list": [
+        {
+            "test_id": "TC_001",
+            "name": "Main_Power_1.2V_Check",
+            "option": "--voltage 1.2",
+            "unit" : "V"
+        },
+        {
+            "test_id": "TC_002",
+            "name": "VCC_Power_3.3V_Check",
+            "option": "--voltage 3.3",
+            "unit" : "V"
+        },
+        {
+            "test_id": "TC_003",
+            "name": "Clock_Freq_6.6G_Verification",
+            "option": "--freq 6.6",
+            "unit" : "Gbps"
+        },
+         {
+            "test_id": "TC_004",
+            "name": "System_Clock_1.2G_Check",
+            "option": "--freq 1.2",
+            "unit" : "GHz"
+        },
+        {
+            "test_id": "TC_005",
+            "name": "Register_Basic_RW_Test",
+            "option": "--reg_rw --start_addr 0x00 --end_addr 0x10",
+            "unit": "hex"
+        },
+        {
+            "test_id": "TC_006",
+            "name": "Register_Full_Bank_Scan",
+            "option": "--reg_rw --start_addr 0x00 --end_addr 0xFF",
+            "unit": "hex"
+        },
+        {
+            "test_id": "TC_007",
+            "name": "Negative_Voltage_Sweep_Test",
+            "option": "--sweep --start_v -5.0 --end_v 0.0 --step 1.0",
+            "unit": "V"
+        },
+        {
+            "test_id": "TC_008",
+            "name": "Positive_Voltage_Sweep_Test",
+            "option": "--sweep --start_v 0.0 --end_v 5.0 --step 1.0",
+            "unit": "V"
+        },
+        {
+            "test_id": "TC_009",
+            "name": "High_Speed_Interface_Init",
+            "option": "--init_check",
+            "unit": "status"
+        },
+        {
+            "test_id": "TC_010",
+            "name": "Total_System_Power_Consumption",
+            "option": "--current_check",
+            "unit": "mA"
+        }
+
+    ]
+}

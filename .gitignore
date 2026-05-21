@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*_Results*/
+*_Backup*/
+*.csv
+*.png
+*.txt
+!README.md
+!requirements.txt
