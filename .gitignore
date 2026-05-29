@@ -8,3 +8,4 @@ __pycache__/
 *.txt
 !README.md
 !requirements.txt
+offline_packages/

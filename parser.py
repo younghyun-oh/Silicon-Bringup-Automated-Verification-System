@@ -15,8 +15,26 @@ class HWLogAnalyzer:
     def __init__(self, project_name="D-IC_Mobile"):
         # 1. 초기 설정: 경로 및 정규식 정의
         self.base_path = os.path.dirname(os.path.abspath(__file__))
-        self.target_dir = os.path.join(self.base_path, f"{project_name}_Project_Results")
         self.error_map_file = os.path.join(self.base_path, "error_map.json")
+        self.project_name = project_name
+        # runner.py가 생성하는 동적 타임스탬프 폴더 자동 추적 시스템
+        # 고정 폴더를 바라보는 대신, 하위 경로에서 'D-IC_Mobile_Project_Results_'로 시작하는 폴더들을 전부 수집합니다.
+        base_prefix = f"{project_name}_Project_Results_"
+        session_dirs = [
+            os.path.join(self.base_path, d)
+            for d in os.listdir(self.base_path)
+            if os.path.isdir(os.path.join(self.base_path, d)) and d.startswith(base_prefix)
+        ]
+
+        if session_dirs:
+            # 그 중 가장 최신 세션 폴더를 자동으로 타겟팅합니다.
+            self.target_dir = max(session_dirs, key=os.path.getmtime)
+            print(f"\n==========================================================")
+            print(f" [자동 분석 엔진 가동] 대상 세션: {os.path.basename(self.target_dir)}")
+            print(f"==========================================================")
+        else:
+            # 예외 방어: 타임스탬프 폴더가 없으면 기존 구형 고정 폴더 형식을 대체 타겟으로 지정
+            self.target_dir = os.path.join(self.base_path, f"{project_name}_Project_Results")
 
         # 2. 정규식 패턴 교정 (0x와 0X 모두 허용 / FAILED와 FAIL 모두 허용)
         self.ERROR_PATTERN = re.compile(r"\[ERROR\] Code:\s*(?P<code>0[xX]\w+), \s*Message:\s*(?P<msg>.*)")
@@ -30,15 +48,25 @@ class HWLogAnalyzer:
         if os.path.exists(self.error_map_file):
             with open(self.error_map_file, 'r', encoding='utf-8') as f:
                 raw_map = json.load(f)
-                return {str(k).upper().strip(): v for k, v in raw_map.items()}
+
+                processed_map = {}
+                for k, v in raw_map.items():
+                    code_key = str(k).upper().strip()
+                    # 런타임 속도 최적화를 위해 JSON 내의 정규표현식 텍스트 패턴을 re.compile()로 사전 빌드
+                    if "regex_pattern" in v:
+                        v["compiled_regex"] = re.compile(v["regex_pattern"], re.IGNORECASE)
+                    processed_map[code_key] = v
+            return processed_map
         return {}
+
 
     def scan_all_logs(self):
         """로그 파일 스캔 및 데이터 수집"""
         try:
-
             # 1. 해당 폴더의 모든 .log 파일 목록 가져오기
             log_files = glob.glob(os.path.join(self.target_dir, "*.log"))
+            # runner.py가 만드는 자체 시스템 로그 파일(verification_system.log)은 분석 대상에서 제외
+            log_files = [f for f in log_files if not os.path.basename(f).endswith("verification_system.log")]
             total_count = len(log_files)  # 파일 개수 저장
 
             if total_count == 0:
@@ -58,35 +86,50 @@ class HWLogAnalyzer:
                 error_detected = False
 
                 with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                    content = f.read()
-                    # 1차 검사 : 규격화된 에러 패턴 매칭
-                    matches = self.ERROR_PATTERN.finditer(content)
-                    for match in matches:
-                        error_detected = True
-                        err_code = match.group("code").upper().strip()
-                        err_msg = match.group("msg").strip()
+                    # 파일 전체를 한 번에 읽는 대신 한 줄씩 라인 스트리밍하며 매칭율 극대화
+                    for line in f:
+                        line_stripped = line.strip()
+                        if not line_stripped:
+                            continue
 
-                        # 에러 맵 매칭
-                        info = self.error_map_upper.get(err_code)
-                        if info:
-                            category = info.get('category', 'UNKNOWN').upper()
-                            description = info.get('description', f"Undefined Code: {err_code}")
-                        else:
-                            category = "UNKNOWN"
-                            description = f"Undefined Code: {err_code}"
+                        # 1차 매칭 검사 : 규격화된 [ERROR] Code 패턴 확인
+                        match = self.ERROR_PATTERN.search(line_stripped)
+                        if match:
+                            error_detected = True
+                            err_code = match.group("code").upper().strip()
+                            err_msg = match.group("msg").strip()
 
-                        # 발견되면 파일명과 함께 저장
-                        results.append({
-                            "file": file_name,
-                            "code": err_code,
-                            "msg": err_msg,
-                            "date": file_date,
-                            "category": category,
-                            "description": description
-                        })
-                    # 2차 검사 : 파일 내부에 FAILED 문구가 있는데 1차 에러 매칭에서 누락된 경우 (방어용 맵핑)
-                    if self.FAIL_RESULT_PATTERN.search(content) or "FAIL" in content:
-                        is_file_failed = True
+                            info = self.error_map_upper.get(err_code)
+                            if info:
+                                category = info.get('category', 'UNKNOWN').upper()
+                                description = info.get('desc', f"Undefined Code: {err_code}")
+                            else:
+                                category = "UNKNOWN"
+                                description = f"Undefined Code: {err_code}"
+
+                            results.append({
+                                "file": file_name, "code": err_code, "msg": err_msg,
+                                "date": file_date, "category": category, "description": description
+                            })
+                            continue
+
+                        # 2차 매칭 검사 : 규격화된 코드가 없더라도, 현업 계측기 에러 원인 문자열이 포함되어 있는지 정밀 대조
+                        for err_code, info in self.error_map_upper.items():
+                            if "compiled_regex" in info and info["compiled_regex"].search(line_stripped):
+                                error_detected = True
+                                results.append({
+                                    "file": file_name,
+                                    "code": err_code,
+                                    "msg": line_stripped,  # 날것의 계측기 장비 로그 문장 자체를 수집
+                                    "date": file_date,
+                                    "category": info.get('category', 'UNKNOWN').upper(),
+                                    "description": info.get('desc', 'Undefined Pattern')
+                                })
+                                break  # 한 줄에서 에러 매칭 시 다음 규칙 대조 스킵
+
+                        # 3차 방어 코드 검사 : 최종 상태값 실패 여부 스캔
+                        if self.FAIL_RESULT_PATTERN.search(line_stripped) or "FAIL" in line_stripped:
+                            is_file_failed = True
 
                 # 에러 코드는 없지만 결과가 FAILED인 경우, 강제로 분석 데이터에 누적 생성
                 if is_file_failed and not error_detected:
@@ -111,48 +154,59 @@ class HWLogAnalyzer:
 
             return pd.DataFrame(results), total_count
 
-
-
         except Exception as e:  # <--- 에러 발생 시 처리
             print(f"[오류] 로그 스캔 중 예상치 못한 에러 발생: {e}")
             import traceback
+
             traceback.print_exc()
             return pd.DataFrame(), 0  # 빈 데이터프레임을 반환해서 main이 멈추지 않게 함
+
 
     def save_and_visualize(self, df, total_count):
         """결과 저장, 히스토리 업데이트 및 시각화"""
         now_str = datetime.now().strftime("%Y%m%d_%H%M")
-        report_name = f"Final_Analysis_{now_str}.csv"  # 버그 방지를 위하 최상단 변수 선언
+        report_name = os.path.join(self.target_dir, f"Final_Analysis_{now_str}.csv")
+
+
+        # 종합 리포트 파일들을 최상위 루트가 아니라 해당 세션 폴더 내부로 깔끔하게 묶어서 강제 저장
+        report_name = os.path.join(self.target_dir, f"Final_Analysis_{now_str}.csv")  # 버그 방지를 위하 최상단 변수 선언
 
         # 1. 에러가 있을 때만 상세 CSV 저장
         if not df.empty:
-            report_name = f"Final_Analysis_{now_str}.csv"  # 실행할때마다 고유 리포트 생성
             df.to_csv(report_name, index=False, encoding='utf-8-sig')
-            print(f"[알림] 상세 분석 결과가 {report_name}에 저장되었습니다.")
+            print(f"[알림] 상세 분석 결과가 {os.path.basename(report_name)}에 저장되었습니다.")
         else:
             # 빈 데이터프레임 구조라도 저장하여 에러 방지
             empty_df = pd.DataFrame(columns=["file", "code", "msg", "date", "category", "description"])
             empty_df.to_csv(report_name, index=False, encoding='utf-8-sig')
-            print(f"[알림] 검증 성공 혹은 분석할 에러 데이터가 없어 빈 요약 파일({report_name})을 생성했습니다.")
+            print(f"[알림] 검증 성공 혹은 분석할 에러 데이터가 없어 빈 요약 파일({os.path.basename(report_name)})을 생성했습니다.")
 
         # 2. [핵심] 에러 통계 내기 (Failure Triage)
         if not df.empty:
             category_counts = df['category'].value_counts()
 
-            print("\n" + "=" * 40)
+            print("\n" + "=" * 50)
             print("      FAILURE TRIAGE REPORT")
-            print("=" * 44)
-            print(category_counts.to_string())
-            print("-" * 40)
+            print("=" * 50)
+
+
+            # 에러 code와 description별로 그룹화하여 빈도수 집계
+            triage_df = df.groupby(['code', 'description']).size().reset_index(name='count')
+            triage_df = triage_df.sort_values(by='count', ascending=False)
+
+            for idx, row in triage_df.iterrows():
+                # 에러코드, 설명, 건수를 포맷팅하여 정렬 출력
+                print(f" [{row['code']}] {row['description']:<35} : {row['count']}건")
+            print("-" * 50)
         else:
-            print("\n" + "=" * 40)
+            print("\n" + "=" * 50)
             print("      FAILURE TRIAGE REPORT (NO ERRORS FOUND)")
-            print("=" * 44)
+            print("=" * 50)
             print("검출된 카테고리별 에러가 없습니다.")
-            print("-" * 40)
+            print("-" * 50)
 
         # 3. 요약 히스토리 파일에 누적 기록 (그래프용)
-        history_file = "verification_history.csv"
+        history_file = os.path.join(self.base_path, "verification_history.csv")
         summary = {
             "Date": now_str,
             "Total_Fail": len(df),
@@ -167,13 +221,13 @@ class HWLogAnalyzer:
         pd.DataFrame([summary]).to_csv(history_file, mode='a', index=False,
                                        header=not os.path.exists(history_file), encoding='utf-8-sig')
 
-        print(f"\n[알림] {now_str} 차수 분석 결과가 {report_name}에 저장되었습니다.")
-        print(f"[알림] 히스토리 파일 ({history_file})에 요약 데이터가 누적되었습니다.")
+        print(f"[알림] 히스토리 파일 ({os.path.basename(history_file)})에 요약 데이터가 누적되었습니다.")
 
         # 4. 시각화 실행 (함수로 호출)
         self._generate_plots(history_file)
         # 요약리포트 실행 (함수로 호출)
         self._write_text_report(df, total_count)
+
 
     def _generate_plots(self, history_file):
         if not os.path.exists(history_file):
@@ -209,17 +263,21 @@ class HWLogAnalyzer:
         plt.tight_layout()
 
         # 그래프 파일 저장
-        report_img = "Verification_Report_Visual.png"
+        report_img = os.path.join(self.target_dir, "Verification_Report_Visual.png")
         plt.savefig(report_img)
-        print(f"\n[시각화] 대시보드 그래프가 저장되었습니다: {report_img}")
+        print(f"\n[시각화] 대시보드 그래프가 저장되었습니다: {os.path.basename(report_img)}")
         # plt.show()
+
 
     def _write_text_report(self, df, total_logs):
         """오늘의 분석 결과를 텍스트 리포트로 요약 저장"""
         total_fails = len(df)
         pass_rate = ((total_logs - total_fails) / total_logs) * 100 if total_logs > 0 else 0
 
-        with open("Final_Summary_Report.txt", "w", encoding="utf-8") as f:
+        # 요약 본문 텍스트 파일 위치 세션 폴더 안으로 지정
+        summary_txt_path = os.path.join(self.target_dir, "Final_Summary_Report.txt")
+
+        with open(summary_txt_path, "w", encoding="utf-8") as f:
             f.write("=" * 50 + "\n")
             f.write(f" HW VERIFICATION SUMMARY REPORT ({datetime.now().strftime('%Y-%m-%d')})\n")
             f.write("=" * 50 + "\n\n")
@@ -240,7 +298,7 @@ class HWLogAnalyzer:
             f.write(" Report Generated by Automated Verification System\n")
             f.write("=" * 50 + "\n")
 
-        print("\n[리포트] 요약 문서 (Final_Summary_Report.txt)가 생성되었습니다.")
+        print(f"\n[리포트] 요약 문서 ({os.path.basename(summary_txt_path)})가 생성되었습니다.")
 
 
 def main():

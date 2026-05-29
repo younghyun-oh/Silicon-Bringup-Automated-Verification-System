@@ -14,6 +14,10 @@ GLOBAL_ERROR_CONFIG = {
         "ERR_MAP": {
             "IDENTIFY_FAIL": "0X501",
             "TIMEOUT": "0X502"
+        },
+        "RAW_LOGS": {
+            "0X501": "[SYSTEM_ERR] DEVICE_IDENTIFY_FAILED_UNABLE_TO_PARSE_IDN_STRING",
+            "0X502": "[TIMEOUT_ERR] SYSTEM_CONNECTION_TIMEOUT_NO_RESPONSE_FROM_TERMINAL"
         }
     },
     "VOLTAGE": {
@@ -28,15 +32,23 @@ GLOBAL_ERROR_CONFIG = {
             "LINK_ERR": "0X801",
         },
         "SPECIAL_CASES": {
-            "OVER_I": {"msg": "Over Current Detected", "action": None, "v_fact": 1.0, "i_fact": 10.0},  # 전류 폭증
-            "LDO": {"msg": "LDO Fail (No Output)", "action": None, "v_fact": 0.0, "i_fact": 0.0},  # 출력 사망
-            "LINK_ERR": {"msg": "Link Training Fail", "action": "LINK_TRAINING", "v_fact": -1.0, "i_fact": 0.0},
-            "AVDD_DROP": {"msg": "AVDD Drop under High-Frame Rate", "action": "HIGH_FRAME", "v_fact": 0.85,
-                          "i_fact": 0.02}
-
+            "OVER_I": {"msg": "OVER_CURRENT_PROTECTION_OCP_TRIGGERED", "action": None, "v_fact": 1.0, "i_fact": 10.0},
+            # 전류 폭증
+            "LDO": {"msg": "LDO_OUTPUT_STAGE_DEAD_NO_VOLTAGE_GENERATED", "action": None, "v_fact": 0.0, "i_fact": 0.0},
+            # 출력 사망
+            "LINK_ERR": {"msg": "LINK_TRAINING_SEQUENCE_HANDSHAKE_TIMEOUT", "action": "LINK_TRAINING", "v_fact": -1.0,
+                         "i_fact": 0.0},
+            "AVDD_DROP": {"msg": "AVDD_VOLTAGE_DROP_UNDER_HIGH_FRAME_RATE_BURST", "action": "HIGH_FRAME",
+                          "v_fact": 0.85, "i_fact": 0.02}
         },
+        "RAW_LOGS": {
+            "0X101": "[MEAS_ALERT] VOLT_OUT_LOW_LIMIT_FAIL - Measured value out of specification",
+            "0X102": "[MEAS_ALERT] VOLT_OUT_HIGH_LIMIT_FAIL - Voltage surge detected on line",
+            "0X103": "[MEAS_CRITICAL] UNDER_VOLTAGE_LOCKOUT_UVLO_STATE_DETECTED",
+            "0X601": "[PMIC_WARN] AVDD_VOLTAGE_DROP_UNDER_HIGH_FRAME_RATE_BURST",
+            "0X701": "[TEK_CH2] MIPI_DPHY_ERR_SKEW_LANE violation over limits"
+        }
     },
-
     "HIGH_SPEED": {
         "ERR_MAP": {
             "WIDTH": "0X301",
@@ -51,10 +63,18 @@ GLOBAL_ERROR_CONFIG = {
             "WATCHDOG": "0X202",
         },
         "SPECIAL_CASES": {
-            "BOOT": {"msg": "Booting Fail", "action": None, "w_fact": 0.0, "h_fact": 0.0},
-            "WATCHDOG": {"msg": "Watchdog Timeout", "action": None, "w_fact": 0.0, "h_fact": 0.0},
-            "LINK": {"msg": "Link Training Fail", "action": "LINK_TRAINING", "w_fact": 0.0, "h_fact": 0.0}
+            "BOOT": {"msg": "HARDWARE_BOOTING_FAILED_REASON_UNKNOWN", "action": None, "w_fact": 0.0, "h_fact": 0.0},
+            "WATCHDOG": {"msg": "WATCHDOG_TIMER_RESET_TIMEOUT_BURST", "action": None, "w_fact": 0.0, "h_fact": 0.0},
+            "LINK": {"msg": "LINK_TRAINING_SEQUENCE_HANDSHAKE_TIMEOUT", "action": "LINK_TRAINING", "w_fact": 0.0,
+                     "h_fact": 0.0}
         },
+        "RAW_LOGS": {
+            "0X301": "[SCOPE_EYE] EYE_DIAGRAM_WIDTH_VIOLATION captured during horizontal jitter trace",
+            "0X302": "[SCOPE_EYE] EYE_DIAGRAM_HEIGHT_VIOLATION captured during vertical noise trace",
+            "0X304": "[PHY_ERR] SIGNAL_INTEGRITY_SI_SEVERE_CLOSURE_DETECTED",
+            "0X305": "[PHY_CRITICAL] CLOCK_SYNC_SIGNAL_LOSS_TERMINAL_DISCONNECTED",
+            "0X701": "[TEK_CH2] MIPI_DPHY_ERR_SKEW_LANE violation over limits"
+        }
     },
     "REGISTER": {
         "ERR_MAP": {
@@ -66,9 +86,13 @@ GLOBAL_ERROR_CONFIG = {
             "MISMATCH": 0x00,
             "CRC": 0xAB,
             "ADDR_ERR": 0xFF
+        },
+        "RAW_LOGS": {
+            "0X401": "[REG_ERR] REGISTER_READ_WRITE_DATA_MISMATCH_SHADOW_LAYER",
+            "0X402": "[REG_ERR] PACKET_CRC_CHECKSUM_ERROR_BURST_DETECTED",
+            "0X403": "[REG_ERR] INVALID_ADDRESS_ACCESS_VIOLATION_BLOCKED"
         }
     }
-
 }
 
 
@@ -92,7 +116,7 @@ def setup_scope(scope, mode="GENERIC"):
     is_sim = IS_SIM or ("@sim" in resource_name if isinstance(resource_name, str) else True)
 
     ## [0x502 시뮬레이션 모드] IS_SIM = True 일 때만 실행됨
-    #if is_sim:
+    # if is_sim:
     #    print(" > [Debug] 시뮬레이션 장비 초기화 중... (10초 무한 대기 유발)")
     #    time.sleep(2.0)
     #    # 상위 함수(test_voltage 등)로 타임아웃 예외를 곧장 던집니다.
@@ -122,28 +146,34 @@ def setup_scope(scope, mode="GENERIC"):
 # 장비 타임아웃 예외처리
 def safe_setup_scope(scope, mode="GENERIC"):
     # TIMEOUT 보호막 함수
-    sys_err_map = GLOBAL_ERROR_CONFIG["SYSTEM"]["ERR_MAP"]
+    sys_config = GLOBAL_ERROR_CONFIG["SYSTEM"]
     try:
         is_ks, is_tk = setup_scope(scope, mode=mode)
         return True, is_ks, is_tk
     except (pyvisa.errors.VisaIOError, TimeoutError):
-        print(f"[ERROR] Code: {sys_err_map['TIMEOUT']}, Message: System Connection Timeout")
+        # 딕셔너리에서 날것의 장비 메시지 매핑 출력
+        timeout_code = sys_config["ERR_MAP"]["TIMEOUT"]
+        print(sys_config["RAW_LOGS"][timeout_code])
         print("Final Status: FAIL")
         return False, False, False
 
 
 # 테스트별 판별 로직
-def check_spec_and_report(value, target, tolerance, low_code, high_code, unit):
-    """범위를 벗어나면 정확한 에러 코드를 출력하는 공통 모듈"""
+def check_spec_and_report(value, target, tolerance, low_code, high_code, unit, domain="VOLTAGE"):
+    """범위를 벗어나면 사전 (RAW_LOGS)을 참조해 날 것의 장비 문구를 던지는 공통 분석기"""
     lower_bound = target - (target * tolerance)
     upper_bound = target + (target * tolerance)
+    # 해당 계열(VOLTAGE, HIGH_SPEED 등)의 날것의 로그 맵 참조
+    raw_log_map = GLOBAL_ERROR_CONFIG.get(domain, {}).get("RAW_LOGS", {})
+
 
     if low_code and value < lower_bound:
-        print(f"[ERROR] Code: {low_code}, Message: Spec Out (Low/Fail)")
+        # 일반 마진 아웃 불량 터졌을 때도 날 것의 장비 측정 범위 이탈 키워드를 출력하여 parser.py의 정규식 그물망에 걸리게 유도
+        print(raw_log_map.get(low_code, f"[ERROR] Code: {low_code}, Message: Spec Out (Low/Fail)"))
         print(f"[SPEC_OUT] {value:.3f}{unit} < {lower_bound:.3f}{unit}")
         return "FAIL"
     elif high_code and value > upper_bound:
-        print(f"[ERROR] Code: {high_code}, Message: Spec Out (High/Over)")
+        print(raw_log_map.get(high_code, f"[ERROR] Code: {high_code}, Message: Spec Out (High/Over)"))
         print(f"[SPEC_OUT] {value:.3f}{unit} > {upper_bound:.3f}{unit}")
         return "FAIL"
 
@@ -154,7 +184,8 @@ def check_spec_and_report(value, target, tolerance, low_code, high_code, unit):
 def check_reg_match(addr, write_val, read_val, fail_code):
     """레지스터 값이 일치하는지 확인하고 에러 코드를 출력하는 모듈"""
     if write_val != read_val:
-        print(f"[ERROR] Code: {fail_code}, Message: Register Mismatch")
+        raw_log_map = GLOBAL_ERROR_CONFIG["REGISTER"]["RAW_LOGS"]
+        print(raw_log_map.get(fail_code, f"[ERROR] Code: {fail_code}, Message: Register Mismatch"))
         print(f"[SPEC_OUT] Addr: {hex(addr)} | Write: {hex(write_val)} | Read: {hex(read_val)}")
         return "FAIL"
     return "PASS"
@@ -186,7 +217,7 @@ def test_voltage(scope, target_v, unit, tolerance):
                 case_info = special_cases[fail_case]
                 if case_info["action"]:
                     set_ic_state(case_info["action"])
-                print(f"[ERROR] Code: {volt_err_map[fail_case]}, Message: {case_info['msg']}")
+                print(f"[POWER_ALERT] {case_info['msg']} triggered on Power Rail")
                 return "FAIL"
 
             # 일반 전압 마진 불량 시뮬레이션 (글로벌 키 매핑 추종)
@@ -254,7 +285,7 @@ def test_high_speed_interface(scope, target_gbps, unit):
         if is_sim:
             if random.random() < 0.15:
                 fail_type = random.choice(list(special_cases.keys()))
-                print(f"[ERROR] Code: {phy_err_map[fail_type]}, Message: {special_cases[fail_type]['msg']}")
+                print(f"[SYSTEM_CRITICAL] {special_cases[fail_type]['msg']} detected on SerDes Core")
                 print("Final Status: FAIL")
                 return "FAIL"
 
@@ -268,7 +299,7 @@ def test_high_speed_interface(scope, target_gbps, unit):
                     case_info = special_cases[fail_type]
                     if case_info.get("action"):
                         set_ic_state(case_info["action"])
-                    print(f"[ERROR] Code: {phy_err_map[fail_type]}, Message: {case_info['msg']}")
+                    print(f"[SYSTEM_CRITICAL] {case_info['msg']} detected on SerDes Core")
                     print("Final Status: FAIL")
                     return "FAIL"
                 else:
@@ -304,15 +335,15 @@ def test_high_speed_interface(scope, target_gbps, unit):
         # 1. 최우선 판정: SYNC LOSS (0X305 기본)
         if eye_width == 0 or eye_height == 0:
             # 2. get()을 사용하여 fail_type에 맞는 코드를 가져오고, 없으면 기본값 SYNC("0X305") 반환
-            err_code = phy_err_map.get(fail_type, phy_err_map['SYNC'])
-            print(f"[ERROR] Code: {err_code}, Message: Clock/Sync Signal Not Detected")
+            selected_code = phy_err_map.get(fail_type, phy_err_map['SYNC'])
+            print(hs_config["RAW_LOGS"].get(selected_code))
             print("Final Status: FAIL")
             return "FAIL"
 
         # 2. 전반적 신호 무결성 체크 (0X304)
         # width와 height가 둘 다 spec에 간당간당하면 SI 문제로 판정
         if eye_width < 115e-12 and eye_height < 0.33:
-            print(f"[ERROR] Code: {phy_err_map['SI']}, Message: Signal Integrity Issue")
+            print(hs_config["RAW_LOGS"][phy_err_map['SI']])
             return "FAIL"
 
         # 3. 개별 스펙 판정 기준: 6.6Gbps 기준 eye가 충분히 열리는지 확인
@@ -320,11 +351,12 @@ def test_high_speed_interface(scope, target_gbps, unit):
         w_low_code = phy_err_map['SKEW'] if fail_type == 'SKEW' else phy_err_map['WIDTH']
         # Width 판정: 120ps 기준 (오차 5% 적용 시 약 114ps~126ps 지만, 여기선 단방향 하한선 검증으로 활용)
         # 0X301(Low), 0X399(High-의미없음)
-        width_status = check_spec_and_report(eye_width, 140e-12, 0.15, w_low_code, "0X399", "s")
+        width_status = check_spec_and_report(eye_width, 140e-12, 0.15, w_low_code, None, "s", domain="HIGH_SPEED")
 
         # Height 판정: 0.35V 기준
         # 0X302(Low), 0X399(High-의미없음)
-        height_status = check_spec_and_report(eye_height, 0.40, 0.15, phy_err_map['HEIGHT'], "0X399", "V")
+        height_status = check_spec_and_report(eye_height, 0.40, 0.15, phy_err_map['HEIGHT'], None, "V",
+                                              domain="HIGH_SPEED")
 
         # 3. 최종 결과
         status = "PASS" if (width_status == "PASS" and height_status == "PASS") else "FAIL"
@@ -338,8 +370,6 @@ def test_high_speed_interface(scope, target_gbps, unit):
 
 # [C] Register Read/Write 판정 (TC004,005,006)
 virtual_ram = {}
-
-
 def test_ram_storage(scope, addr_start, addr_end):
     print(f"\n[Mode] Register R/W: {addr_start} ~ {addr_end}")
 
@@ -376,7 +406,7 @@ def test_ram_storage(scope, addr_start, addr_end):
             # 딕셔너리에서 에러 코드에 맞는 값을 가져옴 (없으면 기본 write_val 유지)
             read_val = reg_sim_vals.get(selected_fault, 0X00)
 
-            # 공통 함수 호출 (0X401)
+        # 공통 함수 호출 (0X401)
         res = check_reg_match(addr, write_val, read_val, reg_err_map[selected_fault])
         if res == "FAIL":
             status = "FAIL"
@@ -502,11 +532,11 @@ def test_power_sweep(scope, v_start, v_end, v_step, unit, mode="SWEEP"):
                 break
 
             # 장비 타임아웃 예외 집중 처리
-            except (pyvisa.errors.VisaIOError, TimeoutError) as te:
+            except (pyvisa.errors.VisaIOError, TimeoutError):
                 print(f" > [TIMEOUT ERROR] 장비가 2초 동안 응답하지 않습니다. (시도 {attempt}/{max_retries})")
                 if attempt == max_retries:
-                    sys_err_map = GLOBAL_ERROR_CONFIG["SYSTEM"]["ERR_MAP"]
-                    print(f"[ERROR] Code: {sys_err_map['TIMEOUT']}, Message: System Connection Timeout")
+                    sys_config = GLOBAL_ERROR_CONFIG["SYSTEM"]
+                    print(sys_config["RAW_LOGS"][sys_config["ERR_MAP"]["TIMEOUT"]])
                     return "FAIL"
                 time.sleep(0.5)
 
@@ -523,16 +553,17 @@ def test_power_sweep(scope, v_start, v_end, v_step, unit, mode="SWEEP"):
 
             # 6. 판정
             # 전압(각 스텝마다 +-0.2V 내외인지 확인. 0X103: Low, 0X102: High)
-            v_stat = check_spec_and_report(measured_v, current_v, 0.2, volt_err_map["UNDER"], volt_err_map["HIGH"], "V")
+            v_stat = check_spec_and_report(measured_v, current_v, 0.2, volt_err_map["UNDER"], volt_err_map["HIGH"], "V",
+                                           domain="VOLTAGE")
 
             # 전류 상한선 체크 (0X104: over current) - 0.1A(100mA) 기준 예시 (0X104)
             # 0X104 코드를 위해 목표를 0.05A로 잡고 오차를 100% 줘서 0.1A까지 상한선으로 잡음
-            i_stat = check_spec_and_report(measured_i, 0.05, 1.0, None, volt_err_map["OVER_I"], "A")
+            i_stat = check_spec_and_report(measured_i, 0.05, 1.0, None, volt_err_map["OVER_I"], "A", domain="VOLTAGE")
 
             # LDO 출력 사망 판정
             # 타겟 전압은 있는데 측정값이 0.1V 미만이면 강제로 0X105 에러 발생
             if current_v > 1.0 and measured_v < 0.1:
-                print(f"[ERROR] Code: {volt_err_map['LDO']}, Message: LDO Fail (No Output)")
+                print(volt_config["RAW_LOGS"][volt_err_map['LDO']])
                 v_stat = "FAIL"
 
             # Parser 인식용 통합 데이터 한 줄 (이건 디버깅용으로 유지)
@@ -544,7 +575,8 @@ def test_power_sweep(scope, v_start, v_end, v_step, unit, mode="SWEEP"):
                 break  # 에러 발생시 즉시 중단
 
             # 7. 결과 출력
-            print(f"[Tester] Step OK: V_Target {current_v:2f}{unit} | I_Meas {measured_i:.2f}{unit} | Power: {power_mw:.2f}{unit}")
+            print(
+                f"[Tester] Step OK: V_Target {current_v:2f}{unit} | I_Meas {measured_i:.2f}{unit} | Power: {power_mw:.2f}{unit}")
 
         # SINGLE 모드 처리
         if mode == "SINGLE":
@@ -561,17 +593,18 @@ def test_power_sweep(scope, v_start, v_end, v_step, unit, mode="SWEEP"):
 
 def test_init_check(scope):
     print("\n[Mode] System Init/Connection Check")
-    sys_err_map = GLOBAL_ERROR_CONFIG["SYSTEM"]["ERR_MAP"]
+    sys_config = GLOBAL_ERROR_CONFIG["SYSTEM"]
+    sys_err_map = sys_config["ERR_MAP"]
     try:
         idn = scope.query('*IDN?')
         if idn:
             print(f" < [SYSTEM OK] Device: {idn.strip()}")
             return "PASS"
         else:
-            print(f"[ERROR] Code: {sys_err_map['IDENTIFY_FAIL']}, Message: System Identification Failed")
+            print(sys_config["RAW_LOGS"][sys_err_map['IDENTIFY_FAIL']])
             return "FAIL"
     except:
-        print(f"[ERROR] Code: {sys_err_map['TIMEOUT']}, Message: System Connection Timeout")
+        print(sys_config["RAW_LOGS"][sys_err_map['TIMEOUT']])
         return "FAIL"
 
 
@@ -618,7 +651,7 @@ def main():
     try:
         # 장비 연결 및 타임아웃 설정
         scope = rm.open_resource(target_addr)
-        res_name = getattr(scope, 'resource_name', "")
+
         # 주소에 @sim이 포함되어 있는지 확인
         is_sim = IS_SIM or ("@sim" in target_addr.lower())
 

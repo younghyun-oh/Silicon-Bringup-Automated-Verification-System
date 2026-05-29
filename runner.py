@@ -8,6 +8,33 @@ import shutil
 import zipfile
 from datetime import datetime
 import time
+import logging
+
+
+# 표준 로깅 설정 함수 (화면 출력 + 파일 저장 통합)
+def setup_logging(output_dir):
+    log_file = os.path.join(output_dir, "verification_system.log")
+
+    logger = logging.getLogger("BringUpLogger")
+    logger.setLevel(logging.INFO)
+
+    # 중복 핸들러 방지 로직
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    # 1. 파일 저장 설정 (시간, 레벨, 메시지 규격화)
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(file_formatter)
+
+    # 2. 콘솔 화면 출력 설정
+    stream_handler = logging.StreamHandler()
+    stream_formatter = logging.Formatter("[%(levelname)s] %(message)s")
+    stream_handler.setFormatter(stream_formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+    return logger
 
 
 # 1. config.json 읽기
@@ -23,7 +50,7 @@ device_lock = threading.Lock()
 
 
 # 8. 테스트 리스트 반복문 실행
-def run_single_test(test, target_address, output_dir):
+def run_single_test(test, target_address, output_dir, logger):
     t_name = test['name']
     t_id = test['test_id']
     t_opt = test['option']
@@ -40,15 +67,15 @@ def run_single_test(test, target_address, output_dir):
         f.flush()
         os.fsync(f.fileno())
 
-    print(f" [READY] {t_id}")
+    logger.info(f" [READY] {t_id}")
 
     # Lock 장비제어
     # device_lock.acquire()와 release()를 자동으로 해주는 with문을 씁니다.
     with device_lock:
 
-        print(f"\n{'=' * 10} [RUNNING: {t_id}] {'=' * 10}")
-        print(f"  ▶ Test Name: {t_name}")
-        print(f"  ▶ Config   : {t_opt} ({t_unit})")
+        logger.info(f"\n{'=' * 10} [RUNNING: {t_id}] {'=' * 10}")
+        logger.info(f"  ▶ Test Name: {t_name}")
+        logger.info(f"  ▶ Config   : {t_opt} ({t_unit})")
 
         # [실제 실행 구간]
         # 기존 t_opt(전압) 뒤에 따온 target_address(주소)를 붙여줍니다.
@@ -64,7 +91,7 @@ def run_single_test(test, target_address, output_dir):
             cmd.extend(["--unit", t_unit])
 
         try:
-            # 10초 타임아웃을 걸어 장비 응답 대기 시 무한 루프 방지
+            # 15초 타임아웃을 걸어 장비 응답 대기 시 무한 루프 방지
             # errors='replace'를 추가하여 인코딩 충돌 시 프로그램을 멈추지 않고 진행합니다.
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
@@ -85,18 +112,19 @@ def run_single_test(test, target_address, output_dir):
         except subprocess.TimeoutExpired as e:
             # 10초가 지나면 이리로 점프하여 프로그램을 계속 살립니다.
             status = "TIMEOUT"
-            print("  ㄴ [에러] 장비 응답 시간 초과!")
+            logger.warning(f"  ㄴ [{t_id}] [경고] 장비 응답 시간 초과 (15s Timeout)!")
             # e.stdout 등에서 읽어올 때도 대비
             stdout = e.stdout.decode('utf-8', 'replace') if e.stdout else "[Error] Timeout"
             stderr = e.stderr.decode('utf-8', 'replace') if e.stderr else ""
 
         except Exception as e:
             status = "ERROR"
+            logger.error(f"  ㄴ [{t_id}] [치명적 에러] 시스템 예외 발생: {str(e)}")
             stdout, stderr = f"[Error] {str(e)}", ""
 
-        # [수정] 한 개의 테스트가 끝날 때 깔끔하게 마무리 표시
-        print(f"  ◀ [FINISH] {t_id} Result: {status}")
-        print(f"{'=' * 33}\n")
+    # [수정] 한 개의 테스트가 끝날 때 깔끔하게 마무리 표시
+    logger.info(f"  ◀ [FINISH] {t_id} Result: {status}")
+
 
     # 개별 로그 파일 저장
 
@@ -107,7 +135,7 @@ def run_single_test(test, target_address, output_dir):
         f.flush()
         os.fsync(f.fileno())
 
-    print(f"  ㄴ [{t_id}] 완료: {status}")
+    logger.info(f"  ㄴ [{t_id}] 완료 기록 저장 완료: {status}")
 
     return {"id": t_id, "name": t_name, "result": status}
 
@@ -193,12 +221,18 @@ def main():
         output_dir = f"{base_prefix}{timestamp}"
         os.makedirs(output_dir, exist_ok=True)
 
+    # 핸들러 베이스의 로깅 모듈 가동 (이 시점부터 모든 출력은 파일과 화면에 동시 인쇄됨)
+    logger = setup_logging(output_dir)
+
+    logger.info("==========================================================")
+    logger.info("  High-Speed Interface Automated Verification System Start")
+    logger.info("==========================================================")
     if completed_tests:
-        print(f"\n[RESUME ALERT] 기존 완료 이력 확인: {len(completed_tests)}건 스킵 대기")
+        logger.info(f"[RESUME ALERT] 기존 완료 이력 확인: {len(completed_tests)}건 스킵 대기")
 
     # 6. 프로젝트 정보 출력 및 폴더 생성 결과 출력
-    print(f"\n--- 프로젝트명: {config['project_name']} (ver {config['version']}) ---")
-    print(f"\n>>> 병렬 실행 시작 (최대 4개 동시 진행)")
+    logger.info(f"--- 프로젝트명: {config['project_name']} (ver {config['version']}) ---")
+    logger.info(f">>> 병렬 실행 시작 (최대 {config.get('parallel_workers', 4)}개 동시 진행)")
 
     # 7. 전체 결과를 담을 리스트 (요약 리포트용)
     final_report = []
@@ -209,7 +243,7 @@ def main():
         if t['test_id'] in completed_tests:
             # 이미 로그가 있는 주소는 실행 안 하고 레포트 결과만 채워둠
             final_report.append({"id": t['test_id'], "name": t['name'], "result": "SUCCESS"})
-            print(f" -> [SKIP] {t['test_id']} ({t['name']}) -> 이미 로그가 존재합니다.")
+            logger.info(f" -> [SKIP] {t['test_id']} ({t['name']}) -> 이미 로그가 존재합니다.")
         else:
             active_tests.append(t)
     # ThreadPoolExecutor로 남은 테스트가 있을 때만 4개 병렬 실행
@@ -217,20 +251,20 @@ def main():
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             # 각 테스트(t)를 'run_single_test' 함수에 넣어서 실행하라고 명령
-            futures = [executor.submit(run_single_test, t, target_address, output_dir) for t in active_tests]
+            futures = [executor.submit(run_single_test, t, target_address, output_dir, logger) for t in active_tests]
 
             # 각 테스트가 끝나는(future.result()) 대로 보고서를 모음
             for future in futures:
                 try:
                     final_report.append(future.result())
                 except Exception as e:
-                    print(f"  ㄴ [에러] 스레드 결과 회수 실패: {e}")
+                    logger.error(f"  ㄴ [에러] 스레드 결과 회수 실패: {e}")
 
     else:
-        print("\n[OK] 모든 시나리오가 이미 완료되어 추가 실행 없이 백업으로 직행합니다.")
+        logger.info("[OK] 모든 시나리오가 이미 완료되어 추가 실행 없이 백업으로 직행합니다.")
 
     # 8. 모든 테스트 완료 후 로그 압축
-    print(f"\n>>> [FINAL] 전체 시나리오 세션 마감 확인. 백업 압축을 시작합니다...")
+    logger.info(f">>> [FINAL] 전체 시나리오 세션 마감 확인. 백업 압축을 시작합니다...")
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_name = os.path.join(output_dir, f"{config['project_name']}_{timestamp}_Logs.zip")
 
@@ -239,19 +273,19 @@ def main():
             with zipfile.ZipFile(zip_name, 'w', zipfile.ZIP_DEFLATED) as log_zip:
                 for root, dirs, files in os.walk(output_dir):
                     for file in files:
-                        if file.endswith(".log"):
+                        if file.endswith(".log") and not file.endswith("verification_system.log"):
                             log_zip.write(os.path.join(root, file), arcname=file)
-            print(f" 압축 완료: {os.path.abspath(zip_name)}")
+            logger.info(f" 압축 완료: {os.path.abspath(zip_name)}")
         else:
-            print("알림: 저장 폴더 내에 압축할 로그 파일이 존재하지 않습니다.")
+            logger.info("알림: 저장 폴더 내에 압축할 로그 파일이 존재하지 않습니다.")
     except Exception as e:
-        print(f" 압축 중 오류 발생: {e}")
+        logger.error(f" 압축 중 오류 발생: {e}")
 
     # 9. [전체 요약 리포트 출력]
     # 모든 for문이 끝난 뒤, final_report에 모인 데이터를 한꺼번에 보여줍니다.
-    print("\n" + "=" * 40)
-    print("        FINAL TEST REPORT")
-    print("=" * 40)
+    logger.info("=" * 40)
+    logger.info("        FINAL TEST REPORT")
+    logger.info("=" * 40)
 
     success_count = 0
     # 딕셔너리 순서가 꼬이지 않게 config 순서 기준으로 리포트 정렬 출력 방어
@@ -259,17 +293,17 @@ def main():
     for t in tests:
         item = report_map.get(t['test_id'])
         if item:
-            print(f"[{item['id']}] {item['name']}: {item['result']}")
+            logger.info(f"[{item['id']}] {item['name']}: {item['result']}")
             if item['result'] == "SUCCESS":
                 success_count += 1
         else:
-            print(f"[{t['test_id']}] {t['name']}: FAILED")
+            logger.info(f"[{t['test_id']}] {t['name']}: FAILED")
 
-    print("-" * 40)
-    print(f"총 합계 : {len(tests)}건 중 {success_count}건 성공")
-    print("=" * 40)
+    logger.info("-" * 40)
+    logger.info(f"총 합계 : {len(tests)}건 중 {success_count}건 성공")
+    logger.info("=" * 40)
 
-    print("\n모든 테스트가 완료되었습니다.")
+    logger.info("모든 테스트가 완료되었습니다.")
 
 
 if __name__ == "__main__":

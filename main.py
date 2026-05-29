@@ -6,15 +6,13 @@ import zipfile
 from datetime import datetime
 
 
-
-
 def check_and_rotate_logs(target_dir, safety_margin_gb=2.0):
     """디스크 용량을 체크하고 부족할 경우 기존 로그를 압축하여 용량을 확보합니다."""
     print("\n[SYSTEM CHECK] 디스크 잔여 용량 및 인프라 상태를 점검합니다.")
 
     # 1. 현재 실행 경로의 디스크 용량 조회
     total, used, free = shutil.disk_usage(os.path.abspath("."))
-    free_gb = free / (1024 ** 3) # Byte --> GB 변환
+    free_gb = free / (1024 ** 3)  # Byte --> GB 변환
 
     print(f"-> 현재 시스템 잔여 용량: {free_gb:.2f} GB (안전 마진 : {safety_margin_gb} GB)")
 
@@ -60,6 +58,9 @@ def run_integrated_system():
             print("프로젝트 폴더 구조를 확인해 주세요.")
             sys.exit(1)
 
+    # OS 환경에 따른 파이썬 실행 명령어 동적 선택 (Windows: python / Linux: python3)
+    python_cmd = "python" if os.name == "nt" else "python3"
+
     # 1.5 디스크 용량 점검 및 로그 로테이션 실행
     # 테스트 환경을 시뮬레이션하기 위해 마진을 임시로 50GB로 높게 잡으면 압축 로직이 강제  트리거 됩니다.
     target_log_directory = os.path.join(os.path.dirname(os.path.abspath(__file__)), "D-IC_Mobile_Project_Results")
@@ -68,7 +69,7 @@ def run_integrated_system():
     # 2. 1단계: Regression Runner 가동 (장비 제어 및 하드웨어 검증 로그 생성)
     print("\n[STEP 1] 하드웨어 검증 실행기(runner.py)를 구동합니다.")
     # runner.py 내부에서 사용자의 입력(장비 번호 선택)을 받아야 하므로 완전히 끝날 때까지 대기합니다.
-    runner_process = subprocess.run(["python", "runner.py"])
+    runner_process = subprocess.run([python_cmd, "runner.py"])
 
     if runner_process.returncode != 0:
         print("\n[경고] 실행기 구동 중 오류가 발생했거나 강제 종료되었습니다.")
@@ -77,7 +78,7 @@ def run_integrated_system():
 
     # 3. 2단계 : Log Parser & Failure Triage 가동 (로그 스캔 및 데이터 집계)
     print("\n[STEP 2] 로그 분석기(parser.py)를 구동하여 데이터를 집계합니다.")
-    parser_process = subprocess.run(["python", "parser.py"])
+    parser_process = subprocess.run([python_cmd, "parser.py"])
 
     # 4. 3단계 : 집계 성공 시 대시보드 자동 구동 (원터치 자동화 결합)
     if parser_process.returncode == 9:
@@ -92,23 +93,25 @@ def run_integrated_system():
             subprocess.Popen(["streamlit", "run", "app.py", "--server.headless", "true"])
 
             # 2. 크롬 브라우저를 주소창 없는 단독 앱 UI 모드로 팝업
+            import webbrowser
             # 일반적인 윈도우 크롬 설치 경로 기준입니다.
             chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-            if os.path.exists(chrome_path):
+
+            # Window 환경이면서 크롬이 설치되어 있다면 단독 앱 UI로 작동
+            if os.name == "nt" and os.path.exists(chrome_path):
                 subprocess.Popen([chrome_path, "--app=http://localhost:8501"])
             else:
                 # 크롬이 없으면 기본 브라우저로 백업
-                print("크롬을 찾을 수 없어 기본 브라우저로 실행합니다.")
-                import webbrowser
+                print("환경에 맞춰 기본 시스템 브라우저로 대시보드를 연결합니다.")
                 webbrowser.open("http://localhost:8501")
 
             print("대시보드 서버가 백그라운드에서 구동되었습니다. (콘솔 종료 가능)")
         except Exception as e:
             print(f"[오류] 대시보드 자동 구동 중 예외가 발생했습니다: {e}")
             print("수동 실행 명령어: streamlit run app.py")
+
     else:
         print("\n[오류] 로그 분석기 구동 중 예외가 발생했습니다.")
-
 
 if __name__ == "__main__":
     run_integrated_system()
