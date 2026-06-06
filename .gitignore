@@ -9,3 +9,9 @@ __pycache__/
 !README.md
 !requirements.txt
 offline_packages/
+.idea/
+~$*
+.~lock.*
+*.docx
+코드설명.xlsx
+생성 파일 list.xlsx
