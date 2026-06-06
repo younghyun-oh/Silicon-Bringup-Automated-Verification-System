@@ -3,6 +3,8 @@ import os
 import sys
 import shutil
 import zipfile
+import time
+import webbrowser
 from datetime import datetime
 
 
@@ -89,11 +91,24 @@ def run_integrated_system():
 
         # 대시보드를 먼저 백그라운드로 켜고, 크롬을 단독 앱 모드로 띄웁니다.
         try:
-            # 1. Streamlit 서버를 브라우저 없이 백그라운드로 구동 (--server.headless true)
-            subprocess.Popen(["streamlit", "run", "app.py", "--server.headless", "true"])
+            # 현재 구동 중인 파이참 가상환경(.venv)의 정확한 인터프리터 경로 추출
+            current_python_exe = sys.executable
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            app_script_path = os.path.join(current_dir, "app.py")
+
+            # 💡 [보안 인프라 패치] .exe 직접 실행 대신 파이썬 모듈(-m streamlit) 호출로 액세스 거부(WinError 5) 차단
+            cmd = [
+                current_python_exe, "-m", "streamlit", "run",
+                app_script_path, "--server.port=8501", "--server.headless=true"
+            ]
+
+            # 1. Streamlit 서버를 가상환경 권한 체계 내에서 백그라운드로 안전하게 구동
+            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # 서버가 완전히 부팅되고 포트를 열 때까지 4초간 안전 마진 대기
+            print("[INFO] 대시보드 로컬 인프라  서버 안정화 대기중 (4s)...")
+            time.sleep(4)
 
             # 2. 크롬 브라우저를 주소창 없는 단독 앱 UI 모드로 팝업
-            import webbrowser
             # 일반적인 윈도우 크롬 설치 경로 기준입니다.
             chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
@@ -106,6 +121,7 @@ def run_integrated_system():
                 webbrowser.open("http://localhost:8501")
 
             print("대시보드 서버가 백그라운드에서 구동되었습니다. (콘솔 종료 가능)")
+
         except Exception as e:
             print(f"[오류] 대시보드 자동 구동 중 예외가 발생했습니다: {e}")
             print("수동 실행 명령어: streamlit run app.py")
