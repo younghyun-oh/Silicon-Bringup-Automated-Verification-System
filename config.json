@@ -51,10 +51,10 @@
             "unit": "V"
         },
         {
-            "test_id": "TC_009",
-            "name": "High_Speed_Interface_Init",
-            "option": "--init_check",
-            "unit": "status"
+        "test_id": "TC_009",
+        "name": "High_Speed_Interface_Init",
+        "option": "--init_check --reg 0x10 --val 0x01",
+        "unit": "status"
         },
         {
             "test_id": "TC_010",

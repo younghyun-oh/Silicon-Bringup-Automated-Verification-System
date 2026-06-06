@@ -97,14 +97,13 @@ GLOBAL_ERROR_CONFIG = {
 
 
 # IC 동작 제어 모듈 (실제 장비 시 Write Reg 동작 시뮬레이션)
-def set_ic_state(mode="NORMAL"):
-    """측정 전 IC의 동작 상태를 물리적으로 변경"""
+def set_ic_state(mode="NORMAL", reg_addr="0x10", reg_val="0x01"):
+    """측정 전 IC의 동작 상태를 물리적(JSON 기반 주소)으로 변경"""
     if mode == "HIGH_FRAME":
-        # 0x601 고부하 상태 설정
-        print(" > [IC_CONTROL] High-Frame Rate Drive Enable (Reg: 0x10 -> 0x01)")
+        # 인자로 전달받은 칩 고유의 레지스터 타깃 번지와 데이터를 출력
+        print(f" > [IC_CONTROL] High-Frame Rate Drive Enable (Reg: {reg_addr} -> {reg_val})")
     elif mode == "LINK_TRAINING":
-        # 0x801 통신 세션 시작
-        print(" > [IC_CONTROL] 6.6Gbps Link Training Sequence Start...")
+        print(f" > [IC_CONTROL] 6.6Gbps Link Training Sequence Start (Reg: {reg_addr} -> {reg_val})...")
     time.sleep(0.1)  # Settling Time
 
 
@@ -192,7 +191,7 @@ def check_reg_match(addr, write_val, read_val, fail_code):
 
 
 # [A] 전압 측정 모드 (TC001,002)
-def test_voltage(scope, target_v, unit, tolerance):
+def test_voltage(scope, target_v, unit, tolerance, reg_addr="0x10", reg_val="0x01"):
     print(f"\n[Mode] 전압 측정 모드 (Target: {target_v}{unit})")
     raw_v = "0.0"  # 초기값 셋팅
     measured_val = 0.0
@@ -216,7 +215,7 @@ def test_voltage(scope, target_v, unit, tolerance):
             if fail_case in special_cases:
                 case_info = special_cases[fail_case]
                 if case_info["action"]:
-                    set_ic_state(case_info["action"])
+                    set_ic_state(case_info["action"], reg_addr=reg_addr, reg_val=reg_val)
                 print(f"[POWER_ALERT] {case_info['msg']} triggered on Power Rail")
                 return "FAIL"
 
@@ -256,7 +255,7 @@ def test_voltage(scope, target_v, unit, tolerance):
 
 
 # [B] 6.6Gbps 고속 인터페이스 & eye diagram (TC003,004)
-def test_high_speed_interface(scope, target_gbps, unit):
+def test_high_speed_interface(scope, target_gbps, unit, reg_addr="0x10", reg_val="0x01"):
     print(f"\n[Mode] High-Speed Interface Analysis (Target: {target_gbps}{unit})")
     if not safe_setup_scope(scope, mode="HS"):  # 장비 셋팅 호출
         return "FAIL"
@@ -271,7 +270,6 @@ def test_high_speed_interface(scope, target_gbps, unit):
     err_code, err_msg = "", ""
     res_name = getattr(scope, 'resource_name', "").lower()
     is_sim = IS_SIM or ("@sim" in res_name.lower())  # 시뮬레이션 장비 설정
-    is_fail = random.random() < 0.4 if is_sim else False
     fail_type = None
 
     try:
@@ -290,7 +288,7 @@ def test_high_speed_interface(scope, target_gbps, unit):
                 return "FAIL"
 
             # 시뮬레이션 : 6.6Gbps 기준 정상 범위 내 랜덤값 생성 (60% pass, 40% fail)
-            if random.random() < 0.4:
+            elif random.random() < 0.15 + 0.4:
 
                 fail_type = random.choice(list(phy_err_map.keys()))
 
@@ -298,7 +296,7 @@ def test_high_speed_interface(scope, target_gbps, unit):
                 if fail_type in special_cases:
                     case_info = special_cases[fail_type]
                     if case_info.get("action"):
-                        set_ic_state(case_info["action"])
+                        set_ic_state(case_info["action"], reg_addr=reg_addr, reg_val=reg_val)
                     print(f"[SYSTEM_CRITICAL] {case_info['msg']} detected on SerDes Core")
                     print("Final Status: FAIL")
                     return "FAIL"
@@ -382,7 +380,6 @@ def test_ram_storage(scope, addr_start, addr_end):
     reg_err_map = reg_config["ERR_MAP"]
     reg_sim_vals = reg_config["SIM_VALS"]
 
-    all_pass = True
 
     # 초기화
     err_addr, err_w, err_r = "", "", ""
@@ -625,6 +622,9 @@ def main():
     parser.add_argument("--step", type=float, default=1.0)  # TC010
     parser.add_argument("--address", type=str, default="")  # 장비 주소
     parser.add_argument("--phy", type=float, default=-1.0)  # 고속 인터페이스 속도 설정
+    parser.add_argument("--reg", type=str, default="0x10")  # 디폴트는 기존 0x10 유지
+    parser.add_argument("--val", type=str, default="0x01")  # 디폴트는 기존 0x01 유지
+
 
     args = parser.parse_args()  # args.voltage 등에 값이 담김
 
@@ -675,12 +675,12 @@ def main():
             status = "PASS" if idn_info else "FAIL"
         elif args.voltage > 0:
             # 전압 측정 (TC_001, 002)
-            status = test_voltage(scope, args.voltage, args.unit, VOLT_TOLERANCE)
+            status = test_voltage(scope, args.voltage, args.unit, VOLT_TOLERANCE, reg_addr=args.reg, reg_val=args.val)
 
         elif args.phy > 0 or args.freq > 0:
             # PHY/고속 인터페이스 : 변수명을 phy로 통일하거나 둘 다 체크
             target_speed = args.phy if args.phy > 0 else args.freq
-            status = test_high_speed_interface(scope, target_speed, args.unit)
+            status = test_high_speed_interface(scope, target_speed, args.unit, reg_addr=args.reg, reg_val=args.val)
 
         elif args.reg_rw:
             # 레지스터 R/W 검증 (TC_005, 006)

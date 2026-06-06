@@ -1,14 +1,19 @@
 import streamlit as st
 import pandas as pd
 import os
+import glob
 
 # 1. 페이지 기본 설정 및 타이틀
 st.set_page_config(layout="wide")
 st.title("Silicon Bring-up Verification Dashboard")
 st.markdown("D-IC 및 T-Con 하드웨어 검증 이력 분석 데이터입니다.")
 
+# 기본 베이스 경로 설정 (parser.py와 동일 위치 가동용)
+BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 # 2. 데이터 로드 함수 및 날짜 전처리 함수
+
+
 def load_history_data(file_path):
     """지정된 CSV 파일을 읽어와 데이터 프레임으로 반환합니다."""
     if os.path.exists(file_path):
@@ -22,7 +27,7 @@ def load_history_data(file_path):
 
 
 # 3. 데이터로드 및 화면 출력
-target_file = "verification_history.csv"
+target_file = os.path.join(BASE_PATH, "verification_history.csv")
 history_df = load_history_data(target_file)
 
 if not history_df.empty:
@@ -66,62 +71,63 @@ if not history_df.empty:
     rc_col1, rc_col2 = st.columns([6, 1])
     with rc_col1:
         st.markdown(f"현재 선택된 차수: 총 {total_records}건 / 전체 {len(history_df)}건")
+
     with rc_col2:
-        with rc_col2:
-            # 1. 엑셀/HTML 리포트 스타일의 구조화된 텍스트 문서 빌드
-            # 사용자가 달력으로 필터링한 데이터(filtered_df)를 기반으로 가공됩니다.
-            report_lines = []
-            report_lines.append("======================================================================")
-            report_lines.append("                  BRING-UP SYSTEM VERIFICATION REPORT                 ")
-            report_lines.append("======================================================================")
-            report_lines.append(f"[발행일자] 2026-05-18 | [프로젝트명] D-IC_Mobile_Project")
-            report_lines.append(f"[조회기간] {start_date} ~ {end_date}")
-            report_lines.append("----------------------------------------------------------------------")
-            report_lines.append("")
-            report_lines.append("1. SUMMARY STATISTICS")
-            report_lines.append("┌───────────────────────────┬───────────────────────────┐")
-            report_lines.append(f"│  Selected Test Batches    │          {str(total_records).ljust(17)} EA │")
-            report_lines.append("├───────────────────────────┼───────────────────────────┤")
-            report_lines.append(f"│  Average Failure Count    │          {str(avg_fail).ljust(17)} EA │")
-            report_lines.append("└───────────────────────────┴───────────────────────────┘")
-            report_lines.append("")
-            report_lines.append("2. FAILURE CATEGORY MATRIX")
-            report_lines.append("┌─────────────────┬─────────────────┬─────────────────┐")
-            report_lines.append("│    Category     │   Total Fails   │     Status      │")
-            report_lines.append("├─────────────────┼─────────────────┼─────────────────┤")
+        # 1. 엑셀/HTML 리포트 스타일의 구조화된 텍스트 문서 빌드
+        # 사용자가 달력으로 필터링한 데이터(filtered_df)를 기반으로 가공됩니다.
+        report_lines = []
+        report_lines.append("======================================================================")
+        report_lines.append("                  BRING-UP SYSTEM VERIFICATION REPORT                 ")
+        report_lines.append("======================================================================")
+        report_lines.append(f"[발행일자] 2026-05-18 | [프로젝트명] D-IC_Mobile_Project")
+        report_lines.append(f"[조회기간] {start_date} ~ {end_date}")
+        report_lines.append("----------------------------------------------------------------------")
+        report_lines.append("")
+        report_lines.append("1. SUMMARY STATISTICS")
+        report_lines.append("┌───────────────────────────┬───────────────────────────┐")
+        report_lines.append(f"│  Selected Test Batches    │          {str(total_records).ljust(17)} EA │")
+        report_lines.append("├───────────────────────────┼───────────────────────────┤")
+        report_lines.append(f"│  Average Failure Count    │          {str(avg_fail).ljust(17)} EA │")
+        report_lines.append("└───────────────────────────┴───────────────────────────┘")
+        report_lines.append("")
+        report_lines.append("2. FAILURE CATEGORY MATRIX")
+        report_lines.append("┌─────────────────┬─────────────────┬─────────────────┐")
+        report_lines.append("│    Category     │   Total Fails   │     Status      │")
+        report_lines.append("├─────────────────┼─────────────────┼─────────────────┤")
 
-            # 각 카테고리별 합계를 구해 표 내부를 동적으로 채움
-            err_categories = ['VOLTAGE', 'POWER', 'REG', 'PHY', 'CLOCK', 'SYSTEM']
-            for cat in err_categories:
-                if cat in filtered_df.columns:
-                    cat_total = filtered_df[cat].sum()
-                    # 불량 개수에 따른 상태 등급 분류 (방어 코드 및 라벨링)
-                    status = "CRITICAL" if cat_total > 50 else ("WARN" if cat_total > 10 else "NORMAL")
+        # 각 카테고리별 합계를 구해 표 내부를 동적으로 채움
+        err_categories = ['VOLTAGE', 'POWER', 'REG', 'PHY', 'CLOCK', 'SYSTEM']
+        for cat in err_categories:
+            if cat in filtered_df.columns:
+                cat_total = filtered_df[cat].sum()
+                # 불량 개수에 따른 상태 등급 분류 (방어 코드 및 라벨링)
+                status = "CRITICAL" if cat_total > 50 else ("WARN" if cat_total > 10 else "NORMAL")
 
-                    report_lines.append(
-                        f"| {cat.ljust(15)} | {str(cat_total).ljust(15)} | {status.ljust(15)} | "
-                    )
-            report_lines.append("└─────────────────┴─────────────────┴─────────────────┘")
-            report_lines.append("")
-            report_lines.append("3. ENGINEERING ACTION ITEM")
-            if total_records > 0 and filtered_df['VOLTAGE'].sum() > 50:
-                report_lines.append(" * High fail rate observed in VOLTAGE. ")
-                report_lines.append(" * Recommend checking PMIC ripple and decoupling capacitor stability.")
-            else:
-                report_lines.append(" * System status remains within stable validation margins.")
-            report_lines.append("======================================================================")
+                report_lines.append(
+                    f"| {cat.ljust(15)} | {str(cat_total).ljust(15)} | {status.ljust(15)} | "
+                )
+        report_lines.append("└─────────────────┴─────────────────┴─────────────────┘")
+        report_lines.append("")
+        report_lines.append("3. ENGINEERING ACTION ITEM")
+        if total_records > 0 and filtered_df['VOLTAGE'].sum() > 50:
+            report_lines.append(" * High fail rate observed in VOLTAGE. ")
+            report_lines.append(" * Recommend checking PMIC ripple and decoupling capacitor stability.")
+        else:
+            report_lines.append(" * System status remains within stable validation margins.")
+        report_lines.append("======================================================================")
 
-            # 줄바꿈 기호로 리스트를 하나의 문자열로 결합
-            final_report_string = "\n".join(report_lines)
+        # 줄바꿈 기호로 리스트를 하나의 문자열로 결합
+        final_report_string = "\n".join(report_lines)
 
-            # 2. 정식 다운로드 버튼 배치
-            st.download_button(
-                label=" 리포트 내보내기",
-                data=final_report_string,
-                file_name=f"Verification_Report_{start_date}_to{end_date}.txt",
-                mime="text/plain",
-                use_container_width=True
-            )
+        # 2. 정식 다운로드 버튼 배치
+        st.download_button(
+            label=" 리포트 내보내기",
+            data=final_report_string,
+            file_name=f"Verification_Report_{start_date}_to{end_date}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
+
     st.markdown("---")
 
     # 7. 동적 그래프 시각화 영역
@@ -134,12 +140,12 @@ if not history_df.empty:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown("차수별 불량 합계 추이(Total Fail Line")
+        st.markdown("차수별 불량 합계 추이(Total Fail Line)")
         # Total_Fail 열만 선택하여 선 그래프 생성
         st.line_chart(chart_df['Total_Fail'], use_container_width=True)
 
     with col2:
-        st.markdown("카테고리별 불량 누적 분석 (Failure Category Bar")
+        st.markdown("카테고리별 불량 누적 분석 (Failure Category Bar)")
         # 주요 불량 카테고리 열들만 선택하여 누적 막대 그래프 생성
         error_categories = ['PHY', 'CLOCK', 'VOLTAGE', 'REG', 'POWER', 'SYSTEM']
         # 데이터에 해당 컬럼이 존재하는지 검토 후 차트 렌더링
@@ -150,34 +156,53 @@ if not history_df.empty:
 
     # 8. 실시간 불량 로그 스트리밍 디버거
     st.subheader("실시간 불량 로그 스트리밍 디버거")
+    # 8-1. 유저가 상단 표를 보며 분석하고 싶은 특정 회차(세션)를 선택할 수 있게 바인딩
+    session_options = filtered_df['Date'].astype(str).tolist()
 
-    # 카테고리 선택용 싱글 셀렉트 박스 생성
-    selected_cat = st.selectbox("추적할 불량 카테고리 선택", options=error_categories)
+    col_sel1, col_sel2 = st.columns([2, 2])
+    with col_sel1:
+        selected_session = st.selectbox("📄 분석할 검증 회차(세션) 선택", options=session_options)
+    with col_sel2:
+        selected_cat = st.selectbox("🎯 추적할 불량 카테고리 선택", options=error_categories)
 
-    # 가상의 에러 로그 파일 매핑 데이터 (실제 프로젝트 폴더 내 록 파일로 연동 가능)
-    # 여기서는 매니저가 선택한 카테고리에 맞춰 동적으로 원문 로그 시뮬레이션을 생성합니다.
-    mock_log_directory = {
-        "PHY": "[ERROR] 6.6Gbps High-Speed Interface Link Training Failure\n[INFO] Lane 0: Eye Diagram Height Violation (vco_cal_done=1)\n[DEBUG] CDR Lock Loss detected at Address 0x3F",
-        "CLOCK": "[ERROR] System Clock 1.2GHz Check Failed\n[WARN] External OSC Jitter Out of Specification\n[DEBUG] PLL Locked Status: 0 (Unstable)",
-        "VOLTAGE": "[ERROR] Negative Voltage Sweep Test Out of Range\n[INFO] Target: -5.0V, Measured: -1.2V\n[CRITICAL] LDO Hardware Shutdown Triggered",
-        "REG": "[ERROR] Register Full Bank Scan Mismatch\n[INFO] Address 0x4A - Write: 0xFF, Read: 0x00 (Bit Flip Error)",
-        "POWER": "[ERROR] Main Power 1.2V Check Failure\n[WARN] Current Draw exceeds 450mA (Overcurrent Condition)",
-        "SYSTEM": "[ERROR] Total System Power Consumption Alert\n[CRITICAL] Thermal Throttling Activated due to High Leakage Current"
-    }
+    # 8-2. 선택된 회차에 해당하는 상세 분석 결과 CSV 파일 경로 추적 연동
+    target_session_dir = os.path.join(BASE_PATH, f"D-IC_Mobile_Project_Results_{selected_session}")
+    detail_csv_pattern = os.path.join(target_session_dir, f"Final_Analysis_{selected_session}.csv")
+    detail_csv_files = glob.glob(detail_csv_pattern)
 
-    # 선택된 카테고리의 원문 로그 가져오기
-    target_log_text = mock_log_directory.get(selected_cat, "해당 카테고리의 에러 로그가 존재하지 않습니다.")
+    real_log_text = ""
 
-    # 터미널 스타일의 고정 폭 폰트로 로그 원문 스트리밍 출력
+    # 8-3. 실제 상세 불량 파일이 존재할 경우 실시간 로드 및 매핑
+    if detail_csv_files and os.path.exists(detail_csv_files[0]):
+        # parser.py가 수집한 상세 불량 내역 개방
+        df_detail = pd.read_csv(detail_csv_files[0], encoding='utf-8-sig')
+
+        if not df_detail.empty:
+            # 사용자가 선택한 불량 카테고리 행들만 정밀 필터링
+            df_filtered_detail = df_detail[df_detail['category'] == selected_cat]
+
+            if not df_filtered_detail.empty:
+                log_lines = []
+                for idx, row in df_filtered_detail.iterrows():
+                    # [소스 파일명] 에러 메시지 조합하여 실제 하드웨어 원문 로그 복원 스트리밍
+                    log_lines.append(f"[{row['file']}] {row['msg']}")
+                real_log_text = "\n".join(log_lines)
+            else:
+                real_log_text = f"[알림] {selected_session} 회차에서 [{selected_cat}] 관련 검출 불량 로그가 없습니다."
+        else:
+            real_log_text = "[알림] 해당 회차에 분석할 에러 데이터가 존재하지 않습니다. (ALL PASS)"
+    else:
+        real_log_text = f"[경고] 상세 불량 분석 파일이 누락되었거나 경로를 찾을 수 없습니다.\n대상 경로: {detail_csv_pattern}"
+
+    # 8-4. 터미널 스타일의 화면 패널에 진짜 날것의 장비 로그 사출
     st.text_area(
         label=f"[{selected_cat}] 분석 파트 실시간 검증 로그 원문 (RAW LOG)",
-        value=target_log_text,
-        height=150,
-        disabled=False  # 매니저가 드래그하여 복사할 수 있도록 활성화
+        value=real_log_text,
+        height=200,
+        disabled=False  # 프리랜서/엔지니어가 즉시 복사하여 FA 진행할 수 있게 활성화
     )
 
 
-
 else:
-    st.warning(f"대시보드에 표시할 데이터 파일({target_file})이 존재하지 않습니다. 먼저 분석기(paser.py)를 구동하여 이력을 쌓아주세요")
+    st.warning(f"대시보드에 표시할 데이터 파일({target_file})이 존재하지 않습니다. 먼저 분석기(parser.py)를 구동하여 이력을 쌓아주세요")
 

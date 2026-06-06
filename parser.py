@@ -165,9 +165,6 @@ class HWLogAnalyzer:
     def save_and_visualize(self, df, total_count):
         """결과 저장, 히스토리 업데이트 및 시각화"""
         now_str = datetime.now().strftime("%Y%m%d_%H%M")
-        report_name = os.path.join(self.target_dir, f"Final_Analysis_{now_str}.csv")
-
-
         # 종합 리포트 파일들을 최상위 루트가 아니라 해당 세션 폴더 내부로 깔끔하게 묶어서 강제 저장
         report_name = os.path.join(self.target_dir, f"Final_Analysis_{now_str}.csv")  # 버그 방지를 위하 최상단 변수 선언
 

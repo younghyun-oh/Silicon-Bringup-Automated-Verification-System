@@ -13,7 +13,7 @@ import logging
 
 # 표준 로깅 설정 함수 (화면 출력 + 파일 저장 통합)
 def setup_logging(output_dir):
-    log_file = os.path.join(output_dir, "verification_system.log")
+    log_file = os.path.join(output_dir, "verification_system.log") #output_dir 폴더경로
 
     logger = logging.getLogger("BringUpLogger")
     logger.setLevel(logging.INFO)
