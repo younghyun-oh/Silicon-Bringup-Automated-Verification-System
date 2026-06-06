@@ -15,3 +15,5 @@ offline_packages/
 *.docx
 코드설명.xlsx
 생성 파일 list.xlsx
+*.md
+*.jpg
