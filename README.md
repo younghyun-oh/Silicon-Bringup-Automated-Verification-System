@@ -1,13 +1,22 @@
 [Silicon Bring-up & High-Speed Interface Automated Verification System]
 
 모바일 D-IC 및 T-Con 구동 기술을 기반으로 하드웨어 실리콘 Bring-up 및 신호 무결성(Signal Integrity) 평가 과정을 완전 자동화한 통합 검증 프레임워크입니다.
-수작업으로 진행되던 계측 장비 제어, 데이터 누적, 불량 로그 분석 파이프라인을 자동화하여 검증 턴어라운드 타임(TAT)을 획기적으로 단축하고 인적 오류를 원천 차단하기 위해 개발되었습니다. 고가의 상용 솔루션 도입이 어려운 중소 팹리스 및 스타트업 환경에 즉시 이식 가능한 크로스 플랫폼(Windows/Linux) 실무형 아키텍처를 지향합니다.
+수작업으로 진행되던 계측 장비 제어, 데이터 누적, 불량 로그 분석 파이프라인을 자동화하여 검증 턴어라운드 타임(TAT)을 획기적으로 단축하고 인적 오류를 원천 차단하기 위해 개발되었습니다. 
+고가의 상용 솔루션 도입이 어려운 중소 팹리스 및 스타트업 환경에 즉시 이식 가능한 크로스 플랫폼(Windows/Linux) 실무형 아키텍처를 지향합니다.
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-[New] Enterprise BI Dashboard 마이그레이션 (Tableau)
-기존 Python(Streamlit) 기반의 실시간 디버깅 화면에서 한 단계 더 나아가, 대기업 생산사업장 표준 인프라 환경 및 경영진 보고 체계에 맞춘 Tableau 기반의 엔터프라이즈 BI 대시보드를 추가 구현 및 마이그레이션하였습니다.
+대시보드 및 시각화 구성
+현장 디버깅을 위한 실시간 파이썬 대시보드와 품질 트렌드 분석을 위한 경영진/엔터프라이즈 보고용 Tableau 대시보드 두 가지로 나누어 구축했습니다.
+
+1. 엔터프라이즈 BI 대시보드 (Tableau)
+양산 사업장 표준 인프라와 보고 체계에 맞춘 대시보드입니다. 차수별 품질 추이와 카테고리별 누적 불량 통계를 한눈에 볼 수 있습니다.
 
 🔗 Tableau Public 실시간 BI 대시보드 링크 보기 : https://public.tableau.com/views/Silicon_verification_dashboard/1_1?:language=ko-KR&:sid=&:redirect=auth&:display_count=n&:origin=viz_share_link
+
+2. 엔지니어용 실시간 대시보드 (Python Streamlit)
+현장 디버깅과 실시간 로그 스트리밍 확인에 특화된 엔지니어 전용 화면입니다. 타임스탬프 정렬과 조건별 필터가 포함되어 있습니다.
+
+🔗Python Streamlit Dashboard 전체 실행 화면 보기 : ![Streamlit Dashboard](./streamlit_captured.png)
 
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -44,20 +53,24 @@
 - 하드웨어 인터페이스: PyVISA (Virtual Instrument Software Architecture), pyvisa-sim
 - 데이터 분석 & 시각화: Pandas, Streamlit
 - 동시성 제어 및 검증: Concurrent.futures (ThreadPoolExecutor), Threading (Lock), pytest
-- 
+  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 구동 및 설치 방법 (크로스 플랫폼 및 폐쇄망 완벽 대응)
 대다수 팹리스 계측실 및 스타트업 보안 구역 PC는 외부 인터넷이 차단된 폐쇄망 환경입니다. 본 시스템은 의존성 패키지를 로컬에 사전 내장하여 인터넷 연결 없이 즉시 구동이 가능합니다.
 
 Case A. 인터넷 연결이 불가능한 보안 계측실 (폐쇄망 환경)
-1. 인터넷이 가능한 외부 PC에서 필수 패키지 바퀴(*.whl)를 미리 다운로드합니다. pip download -r requirements.txt -d ./offline_packages
-2. 프로젝트 폴더를 보안 USB에 담아 장비 PC(Windows 또는 Linux)로 복사합니다.
-3. 로컬 패키지 경로를 지정하여 인터넷 없이 의존성을 100% 구축합니다. pip install --no-index --find-links=./offline_packages -r requirements.txt
+1. 인터넷이 가능한 외부 PC에서 필수 패키지 바퀴(*.whl)를 미리 다운로드합니다.
+   pip download -r requirements.txt -d ./offline_packages
+3. 프로젝트 폴더를 보안 USB에 담아 장비 PC(Windows 또는 Linux)로 복사합니다.
+4. 로컬 패키지 경로를 지정하여 인터넷 없이 의존성을 100% 구축합니다.
+   pip install --no-index --find-links=./offline_packages -r requirements.txt
 
 Case B. 일반 개발 환경 (온라인 환경 원터치 구동)
-1. Windows 환경: 폴더 내에 위치한 run.bat 파일을 더블클릭하여 실행하거나 터미널에 아래 명령어를 입력합니다. call .venv\Scripts\activate 후 python main.py
-2. Linux (Ubuntu/CentOS) 환경: 리눅스 서버 터미널 환경에서 실행 권한을 부여한 뒤 run.sh를 구동합니다. chmod +x run.sh 후 ./run.sh
+1. Windows 환경: 폴더 내에 위치한 run.bat 파일을 더블클릭하여 실행하거나 터미널에 아래 명령어를 입력합니다.
+   call .venv\Scripts\activate 후 python main.py
+3. Linux (Ubuntu/CentOS) 환경: 리눅스 서버 터미널 환경에서 실행 권한을 부여한 뒤 run.sh를 구동합니다.
+   chmod +x run.sh 후 ./run.sh
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 기대 효과 (Business Value)
